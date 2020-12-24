@@ -146,6 +146,9 @@
     <ClInclude Include="src\anovaPID.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include=".gitignore" />
+    <None Include="python\prototype.py" />
+    <None Include="python_test.py" />
     <None Include="src\Eigen\Eigen" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

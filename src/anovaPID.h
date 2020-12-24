@@ -4,7 +4,6 @@
 
 class AnovaPID {
 
-
 private:
 
 	// PID controller constants
@@ -12,7 +11,6 @@ private:
 	float toaI;
 	float toaD;
 	float dt;
-	int reset;
 
 	//bool windup = false; // no windup reset considered unless asked for
 	//int windup_cnt;
@@ -38,29 +36,30 @@ private:
 	float toaI_center;
 	float toaD_center;
 	Eigen::VectorXi indexList;
-	
 	Eigen::VectorXf errorData;  // length of vector will be known based on the options provided
-	Eigen::MatrixX2f piSettings;  // upfront log of encoded pi settings	
+	Eigen::MatrixX2i piSettings;  // upfront log of encoded pi settings	
+	Eigen::MatrixX3i pidSettings;  // upfront log of encoded pid settings
+	Eigen::MatrixXi X_; // this is the design matrix, changes size depending on PI or PID
 
-	Eigen::MatrixX3f pidSettings;  // upfront log of encoded pid settings
-	
+
 	/// <summary>
 	/// Provides a random index for pi/pid Settings
 	/// </summary>
 	/// <param name="length"></param>
 	/// <returns></returns>
-	int randNum(int length);
-	/// <summary>
-	/// moves the PI settings
-	/// </summary>
-	/// <param name=""></param>
-	void setAnovaParameters(Eigen::Vector2f moveVector);
+	unsigned int randNum(const int length);
 
 	/// <summary>
-	/// moves the PID settings
+	/// Takes in the new coded settings and converts the actual pi settings
 	/// </summary>
 	/// <param name=""></param>
-	void setAnovaParameters(Eigen::Vector3f moveVector);
+	void setPiSettings(const Eigen::Vector2i moveToVector);
+
+	/// <summary>
+	/// Takes in the new coded settings and converts the actual pid settings
+	/// </summary>
+	/// <param name=""></param>
+	void setPidSettings(const Eigen::Vector3i moveToVector);
 
 	/// <summary>
 	/// Moves the PID settings to the next DOE location
@@ -69,26 +68,39 @@ private:
 	void mvAnovaDOE(void);
 
 	/// <summary>
-	/// Chooses the Anova settings
+	/// pi control gradient descent for find new center
 	/// </summary>
 	/// <param name=""></param>
-	void calculateAnovaParameters(void);
+	void piGradDescent(void);
+	
+	/// <summary>
+	/// pid control gradient descent for find new center
+	/// </summary>
+	/// <param name=""></param>
+	void pidGradDescent(void);
+
 
 	/// <summary>
-	/// Calculates new PI Anova Parameters, in wrt the encoded values.
-	/// Ensures no duplicates
+	/// This function encodes uncoded pi/pid Settings
 	/// </summary>
-	/// <param name="pidSettings"></param>
+	/// <param name="decoded"></param>
+	/// <param name="center"></param>
+	/// <param name="range"></param>
 	/// <returns></returns>
-	Eigen::Vector2f chooseAnovaSettings(Eigen::MatrixX2f piSettings);
+	float encodeSetting(float decoded, float center, float step);
+
 
 	/// <summary>
-	/// Calculates new PID Anova Parameters, in wrt the encoded values.
-	/// Ensures no duplicates
+	/// This function decodeds coded pi/pid Settings
 	/// </summary>
-	/// <param name="pidSettings"></param>
+	/// <param name="coded"></param>
+	/// <param name="center"></param>
+	/// <param name="range"></param>
 	/// <returns></returns>
-	Eigen::Vector3f chooseAnovaSettings(Eigen::MatrixX3f pidSettings);
+	float decodeSetting(float coded, float center, float step);
+
+	void resetParameters(void);
+
 
 public:
 	//
