@@ -18,28 +18,29 @@ private:
 	float prevError = 0; // assumes initially no error -- only relevant for initial control action
 	// discern which control scheme
 
-	bool piControl;
-	bool pidControl;
+	bool piControl = false;
+	bool pidControl = false;
 	// control action
-	float mAction;
+	float mAction = 0;
 	float intAcc = 0; // integral accumulation
 	// ANOVA parameters
-	bool anova;
-	int freq;
-	float Kp_Step;
-	float toaI_Step;
-	float toaD_Step;
-	float grad_Step;
-	int count;
+	bool anova = false;
+	int freq = 100;
+	float Kp_Step = 1.0;
+	float toaI_Step = 1.0;
+	float toaD_Step = 1.0;
+	float grad_Step = 1.0;
+	int count = 1;
 	int cntDOE = 0; // this indexes
-	float Kp_center;
-	float toaI_center;
-	float toaD_center;
+	float Kp_center = 1.0;
+	float toaI_center = 1.0;
+	float toaD_center = 1.0;
+
 	Eigen::VectorXi indexList;
 	Eigen::VectorXf errorData;  // length of vector will be known based on the options provided
-	Eigen::MatrixX2i piSettings;  // upfront log of encoded pi settings	
-	Eigen::MatrixX3i pidSettings;  // upfront log of encoded pid settings
-	Eigen::MatrixXi X_; // this is the design matrix, changes size depending on PI or PID
+	Eigen::MatrixX2f piSettings;  // upfront log of encoded pi settings	
+	Eigen::MatrixX3f pidSettings;  // upfront log of encoded pid settings
+	Eigen::MatrixXf X_; // this is the design matrix, changes size depending on PI or PID
 
 
 	/// <summary>
@@ -53,13 +54,13 @@ private:
 	/// Takes in the new coded settings and converts the actual pi settings
 	/// </summary>
 	/// <param name=""></param>
-	void setPiSettings(const Eigen::Vector2i moveToVector);
+	void setPiSettings(const Eigen::Vector2f moveToVector);
 
 	/// <summary>
 	/// Takes in the new coded settings and converts the actual pid settings
 	/// </summary>
 	/// <param name=""></param>
-	void setPidSettings(const Eigen::Vector3i moveToVector);
+	void setPidSettings(const Eigen::Vector3f moveToVector);
 
 	/// <summary>
 	/// Moves the PID settings to the next DOE location
@@ -87,7 +88,7 @@ private:
 	/// <param name="center"></param>
 	/// <param name="range"></param>
 	/// <returns></returns>
-	float encodeSetting(float decoded, float center, float step);
+	int encodeSetting(float decoded, float center, float step);
 
 
 	/// <summary>
@@ -97,6 +98,9 @@ private:
 	/// <param name="center"></param>
 	/// <param name="range"></param>
 	/// <returns></returns>
+	float decodeSetting(int coded, float center, float step);
+
+
 	float decodeSetting(float coded, float center, float step);
 
 	void resetParameters(void);

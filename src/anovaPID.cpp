@@ -1,25 +1,25 @@
 #include "anovaPID.h"
 #include "Eigen/Dense"
 #include <stdlib.h>
-
+#include <iostream>
 
 AnovaPID::AnovaPID(float Kp, float toaI, float dt) :
-	Kp(Kp), toaI(toaI), dt(dt)
+	Kp(Kp), toaI(toaI), dt(dt), piControl(true)
 {
-	piControl = true;
 }
 
 AnovaPID::AnovaPID(float Kp, float toaI, float dt, float toaD) :
-	Kp(Kp), toaI(toaI), dt(dt), toaD(toaD)
+	Kp(Kp), toaI(toaI), dt(dt), toaD(toaD), pidControl(true)
 {
-	pidControl = true;
 }
 
 AnovaPID::AnovaPID(float Kp, float toaI, float dt, int freq,  float grad_Step) :
-	Kp(Kp), toaI(toaI), dt(dt), freq(freq), grad_Step(grad_Step), piControl(true), anova(true)
+	Kp(Kp), Kp_center(Kp), toaI(toaI), toaI_center(toaI), dt(dt), freq(freq), grad_Step(grad_Step), piControl(true), 
+	anova(true), Kp_Step(grad_Step*Kp), toaI_Step(grad_Step*toaI)
 {
 	// resize for pi control
 	indexList.resize(5);
+	indexList.setZero();
 	errorData.resize(5);
 	errorData.setZero();
 	piSettings.resize(5, 2);
@@ -30,14 +30,16 @@ AnovaPID::AnovaPID(float Kp, float toaI, float dt, int freq,  float grad_Step) :
 	piSettings.row(2) << 1, -1;
 	piSettings.row(3) << -1, 1;
 	piSettings.row(4) << -1, -1;
+
 }
 
 
 AnovaPID::AnovaPID(float Kp, float toaI, float dt, float toaD, int freq, float grad_Step) :
-	Kp(Kp), toaI(toaI), dt(dt), toaD(toaD), freq(freq), grad_Step(grad_Step), pidControl(true), anova(true)
+	Kp(Kp),  toaI(toaI), dt(dt), toaD(toaD), freq(freq), grad_Step(grad_Step), pidControl(true), anova(true)
 {
 	//resize for pid control
 	indexList.resize(9);
+	indexList.setZero();
 	errorData.resize(9);
 	errorData.setZero();
 	X_.resize(9, 8);
@@ -75,10 +77,12 @@ float AnovaPID::compute(float error) {
 
 	// detemrine if there's an anova count
 	count = anova ? count + 1 : count; 
+	errorData(cntDOE) += error;
 	if ((count > freq) && anova) {
 		mvAnovaDOE();
+		count = 0;
 	}
-
+	
 	return mAction;
 }
 
@@ -93,7 +97,9 @@ void AnovaPID::mvAnovaDOE(void) {
 			// includes the center point of DOE
 			index = randNum(5);
 			// Set the new anova parameters
-			setPiSettings(piSettings.row(index));
+			
+			setPiSettings(piSettings.row(index).transpose());
+			indexList(cntDOE) = index;
 		}
 		else {
 			// Gradient Descent to find and set the new PI parameters
@@ -106,7 +112,7 @@ void AnovaPID::mvAnovaDOE(void) {
 		if (cntDOE < 9) {
 			index = randNum(9);
 			setPidSettings(pidSettings.row(index));
-
+			
 		}
 		else {
 			// GRADIENT DESCENT
@@ -115,73 +121,88 @@ void AnovaPID::mvAnovaDOE(void) {
 
 }
 
-void AnovaPID::setPiSettings(const Eigen::Vector2i moveToVector) {
+void AnovaPID::setPiSettings(const Eigen::Vector2f moveToVector) {
 
-	Kp = decodeSetting(moveToVector(0, 0), Kp_center, Kp_Step);
-	toaI = decodeSetting(moveToVector(0, 1), toaI_center, toaI_Step);
+	Kp = decodeSetting(moveToVector(0), Kp_center, Kp_Step);
+	toaI = decodeSetting(moveToVector(1), toaI_center, toaI_Step);
+
 }
 
-void AnovaPID::setPidSettings(const Eigen::Vector3i moveToVector) {
+void AnovaPID::setPidSettings(const Eigen::Vector3f moveToVector) {
 
-	Kp = decodeSetting(moveToVector(0, 0), Kp_center, Kp_Step);
-	toaI = decodeSetting(moveToVector(0, 1), toaI_center, toaI_Step);
-	toaD = decodeSetting(moveToVector(0, 2), toaD_center, toaD_Step);
+	Kp = decodeSetting(moveToVector(0), Kp_center, Kp_Step);
+	toaI = decodeSetting(moveToVector(1), toaI_center, toaI_Step);
+	toaD = decodeSetting(moveToVector(2), toaD_center, toaD_Step);
+
+
 }
 
 void AnovaPID::piGradDescent() {
 	
 	// build the design matrix -- row by row
 	unsigned int index;
-	Eigen::Vector4f beta;
-	Eigen::Matrix4f XTX_;
-	Eigen::Matrix4f invXTX_;
-	Eigen::Vector4f XTY_;
+	Eigen::VectorXf beta(5);
+	Eigen::MatrixXf XTX_(4, 4);
+	Eigen::MatrixXf invXTX_(4, 4);
+	Eigen::VectorXf XTY_(4, 1);
 	Eigen::Vector2f gradVector;
 
 
 	for (int i = 0; i < 5; ++i) {
 		index = indexList(i);
-		X_.row(i) << 1, (float)piSettings(index, 0), (float)piSettings(index, 0), (float)(piSettings(index, 0)*piSettings(index, 1));
+		X_.block(i, 0, 1, 4) << 1, piSettings(index, 0), piSettings(index, 1), piSettings(index, 0)*piSettings(index, 1);
 	}
 
 	XTX_ = X_.transpose() * X_;
+	
 	invXTX_ = XTX_.inverse();
+	
 	XTY_ = X_.transpose() * errorData;
+	
 	beta = invXTX_ * XTY_;
+	
+	beta = beta.normalized();
+	
+	gradVector << -1*beta(1)*grad_Step, -1*beta(2)*grad_Step;
+	
 
-	gradVector << beta(1), beta(2);
+	//// make the PI parameter move
+	setPiSettings(gradVector);
+	Kp_center = Kp;
+	toaI_center = toaI;
 
-	// make the PI parameter move
-	setPiSettings(gradVector * grad_Step);
-
-
+	std::cout << Kp << std::endl;
+	std::cout << toaI << std::endl;
 	resetParameters();
 }
 
 
-float AnovaPID::encodeSetting(float decoded, float center, float step) {
+int AnovaPID::encodeSetting(float decoded, float center, float step) {
+
 	float coded;
 	coded = (decoded - center) / step;
-
-	return coded;
+	return (int)coded;
 }
 
 
+
 float AnovaPID::decodeSetting(float coded, float center, float step) {
+
 	float decoded;
 	decoded = coded * step + center;
-
 	return decoded;
 }
 
 
-
 unsigned int AnovaPID::randNum(int length) {
-	unsigned int index = rand() % length;
+
+	int index = rand() % length;
 	int test = 0;
+
 	// determine if this index has been used
-	for (int i=0; i < length; ++i) {
-		test += 1 * (indexList[i] == index);
+	for (int i=0; i < length; i++) {
+
+		test += 1 * (indexList(i) == index);
 	}
 
 	// cycle through until a unique one has been used
