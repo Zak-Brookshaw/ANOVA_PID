@@ -11,10 +11,28 @@
 /// <param name="taod"></param>
 /// <param name="movePercent"></param>
 /// <param name="dt"></param>
-AnovaPID::AnovaPID(float kp, float taoi, float taod, float movePercent, float dt, int switchCnt) :
-	kp(kp), taoi(taoi), taod(taod), kp_mv(movePercent* kp), taoi_mv(movePercent* taoi), taod_mv(movePercent* taod),
-	grad_mv(1.41 * (pow(kp_mv, 2) + pow(taoi_mv, 2) + pow(taod_mv, 2))), dt(dt), switchCnt(switchCnt)
+AnovaPID::AnovaPID(float kp, float taoi, float taod, float movePercent, float dt, int resetCnt) :
+	kp(kp), taoi(taoi), taod(taod), kp_mv(movePercent* kp), taoi_mv(movePercent * taoi), taod_mv(movePercent* taod),
+	grad_mv(sqrtf(pow(kp_mv, 2) + pow(taoi_mv, 2) + pow(taod_mv, 2))), dt(dt), resetCnt(resetCnt)
 {
+	pidEncoded.row(0) << 0, 0, 0;
+	pidEncoded.row(1) << 1, 1, 1;
+	pidEncoded.row(2) << 1, -1, 1;
+	pidEncoded.row(3) << -1, 1, 1;
+	pidEncoded.row(4) << -1, -1, 1;
+	pidEncoded.row(5) << 1, 1, -1;
+	pidEncoded.row(6) << 1, -1, -1;
+	pidEncoded.row(7) << -1, 1, -1;
+	pidEncoded.row(8) << -1, -1, -1;
+	
+	pidDecoded.row(0) << kp, taoi, taod;
+	for (int i = 1; i < pidEncoded.rows(); i++)
+	{
+		pidDecoded.row(i) = decodeSettings(pidEncoded.row(i));
+	}
+
+	std::cout << pidDecoded << std::endl;
+
 }
 
 /// <summary>
@@ -35,16 +53,22 @@ float AnovaPID::compute(float e)
 			movePid();
 			switchCnt = 0;
 			rowsIndex.resize(9);
-			for (int i = 0; i < 9; i++)
+			for (int i = 1; i < 9; i++)
 			{
 				rowsIndex[i] = i;
 			}
+			
+			std::cout << kp << " " << taoi << " " << taod << std::endl;
 			erLog.reset();
 		}
 		else
 		{
 			int row = randomInt(rowsIndex.size());
 			switchPid(row);
+
+			//std::cout << row << std::endl;
+			//std ::cout << "========"<<std ::endl;
+			//std::cout << kp << " " << taoi << " " << taod << std::endl;
 		}
 		reset();
 	}
@@ -73,12 +97,13 @@ inline void AnovaPID::movePid()
 {
 	Eigen::Vector3f grad = gradient();
 	// Vector used to move from current pid parameter region
-	Eigen::Vector3f moveVector = decodeSettings(grad * grad_mv*-1);
-	pidDecoded.block(0, 0, 1, 3) += moveVector;
+	Eigen::RowVector3f moveVector = decodeSettings(grad);
+	std::cout << -0.005 * moveVector.cwiseProduct(pidDecoded.block(0, 0, 1, 3)) << std::endl;
+	pidDecoded.block(0, 0, 1, 3) += -0.005*moveVector.cwiseProduct(pidDecoded.block(0, 0, 1, 3));
 	kp = pidDecoded(0, 0);
 	taoi = pidDecoded(0, 1);
 	taod = pidDecoded(0, 2);
-	for (int i = 0; i < 8; i++)
+	for (int i = 1; i < 9; i++)
 	{
 		pidDecoded.block(i, 0, 1, 3) = decodeSettings(pidEncoded.block(i, 0, 1, 3));
 	}
@@ -88,11 +113,12 @@ inline void AnovaPID::movePid()
 /// Finds the parameter's gradient
 /// </summary>
 /// <returns></returns>
-inline Eigen::VectorXf AnovaPID::gradient()
+inline Eigen::RowVectorXf AnovaPID::gradient()
 {
-	Eigen::Vector3f eff = Eigen::Vector3f::Zero(3);
+	Eigen::RowVector3f eff = Eigen::Vector3f::Zero(3);
+	Eigen::RowVector3f grad;
 	Eigen::VectorXf _pidCol = Eigen::VectorXf::Zero(9);
-	float er_avg, _enc;
+	float _er, _enc;
 	int ind;
 	for (int i = 0; i < 3; i++)
 	{
@@ -100,13 +126,15 @@ inline Eigen::VectorXf AnovaPID::gradient()
 
 		for (int j = 0; j < 9; j++)
 		{
-			er_avg = erLog.error[j];
+			_er = erLog.error[j];
 			ind = erLog.index[j];
 			_enc = (float)_pidCol[ind];
-			eff[i] += _enc * er_avg;
+			eff[i] += _enc * _er;
 		}
 	}
-	return eff/2;
+	grad = eff / 2;
+
+	return grad / grad.norm();
 }
 
 /// <summary>
@@ -115,12 +143,12 @@ inline Eigen::VectorXf AnovaPID::gradient()
 /// <param name="row"></param>
 inline void AnovaPID::switchPid(int row)
 {
-	Eigen::Vector3f _temp = pidEncoded.block(row, 0, 1, 3);
+	Eigen::Vector3f _temp = pidDecoded.block(rowsIndex[row], 0, 1, 3).transpose();
 	kp = _temp(0);
 	taoi = _temp(1);
 	taod = _temp(2);
 	erLog.error[switchCnt-1] = er_avg;
-	erLog.index[switchCnt] = row;
+	erLog.index[switchCnt] = rowsIndex[row];
 	rowsIndex.erase(rowsIndex.begin() + row);
 }
 
@@ -132,25 +160,23 @@ inline void AnovaPID::reset()
 {
 	er_sum = 0;
 	er_prev = 0;
-	errors.setZero();
 	counter = 0;
 }
-
 
 /// <summary>
 /// This method returns raw values of PID parameters, from encoded values
 /// </summary>
 /// <param name="encoded"></param>
 /// <returns></returns>
-inline Eigen::Vector3f AnovaPID::decodeSettings(Eigen::Vector3f encoded)
+inline Eigen::RowVector3f AnovaPID::decodeSettings(Eigen::RowVector3f encoded)
 {
 	float kpRange = kp_mv * 2;
 	float taoiRange = taoi_mv * 2;
 	float taodRange = taod_mv * 2;
 	float kpAvg = pidDecoded(0, 0);
-	float taoiAvg = pidDecoded(1, 0);
-	float taodAvg = pidDecoded(2, 0);
-	Eigen::Vector3f decoded; 
+	float taoiAvg = pidDecoded(0, 1);
+	float taodAvg = pidDecoded(0, 2);
+	Eigen::RowVector3f decoded; 
 
 	decoded(0) = _decode(encoded(0), kpAvg, kpRange);
 	decoded(1) = _decode(encoded(1), taoiAvg, taoiRange);
@@ -178,7 +204,7 @@ inline float AnovaPID::_decode(float coded, float avg, float range)
 /// </summary>
 /// <param name="decoded"></param>
 /// <returns></returns>
-inline Eigen::Vector3f AnovaPID::encodeSettings(Eigen::Vector3f decoded)
+inline Eigen::RowVector3f AnovaPID::encodeSettings(Eigen::RowVector3f decoded)
 {
 	float kpRange = kp_mv * 2;
 	float taoiRange = taoi_mv * 2;
@@ -188,7 +214,7 @@ inline Eigen::Vector3f AnovaPID::encodeSettings(Eigen::Vector3f decoded)
 	float taodAvg = pidDecoded(2, 0);
 
 
-	Eigen::Vector3f encoded;
+	Eigen::RowVector3f encoded;
 	encoded(0) = _encode(decoded(0), kpAvg, kpRange);
 	encoded(1) = _encode(decoded(1), taoiAvg, taoiRange);
 	encoded(2) = _encode(decoded(2), taodAvg, taodRange);

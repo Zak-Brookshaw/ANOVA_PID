@@ -19,8 +19,6 @@ float cAction(float tAction)
 	float A = .1;
 
 	val = A*(1 -  exp(-(tAction - tDelay) / toa)) * heaviside(tAction, tDelay);
-
-
 	return val;
 }
 
@@ -47,9 +45,13 @@ int main() {
 
 	}
 	
-	
+	float kp = .01;
+	float taoi = 150;
+	float taod = .0001;
+	float movePercent = 0.05;
+	float cnt = 1000;
 
-	AnovaPID PID = AnovaPID::AnovaPID(.1, 70.0, (float)dt, 1000, .1);
+	AnovaPID PID = AnovaPID::AnovaPID(kp, taoi, taod, movePercent, (float)dt, cnt);
 	float mAction;
 	int preRand;
 	float random;
