@@ -1,186 +1,60 @@
 #pragma once
+
+#include "typedefs.h"
 #include "Eigen/Dense"
 #include <stdlib.h>
+#include <iostream>
+#include <vector>
 
 class AnovaPID {
 
 private:
-
-	// PID controller constants
-	float Kp;
-	float toaI;
-	float toaD;
+	// parameters needed to find 
+	float kp, taoi, taod;
+	float er_sum = 0; 
+	float er_prev = 0;
 	float dt;
-
-	//bool windup = false; // no windup reset considered unless asked for
-	//int windup_cnt;
-
-	float prevError = 0; // assumes initially no error -- only relevant for initial control action
-	// discern which control scheme
-
-	bool piControl = false;
-	bool pidControl = false;
-	// control action
-	float mAction = 0;
-	float intAcc = 0; // integral accumulation
-	// ANOVA parameters
-	bool anova = false;
-	int freq = 100;
-	float Kp_Step = 1.0;
-	float toaI_Step = 1.0;
-	float toaD_Step = 1.0;
-	float grad_Step = 1.0;
-	int count = 1;
-	int cntDOE = 0; // this indexes
-	float Kp_center = 1.0;
-	float toaI_center = 1.0;
-	float toaD_center = 1.0;
-
-	Eigen::VectorXi indexList;
-	Eigen::VectorXf errorData;  // length of vector will be known based on the options provided
-	Eigen::MatrixX2f piSettings;  // upfront log of encoded pi settings	
-	Eigen::MatrixX3f pidSettings;  // upfront log of encoded pid settings
-	Eigen::MatrixXf X_; // this is the design matrix, changes size depending on PI or PID
-
-
-	/// <summary>
-	/// Provides a random index for pi/pid Settings
-	/// </summary>
-	/// <param name="length"></param>
-	/// <returns></returns>
-	unsigned int randNum(const int length);
-
-	/// <summary>
-	/// Takes in the new coded settings and converts the actual pi settings
-	/// </summary>
-	/// <param name=""></param>
-	void setPiSettings(const Eigen::Vector2f moveToVector);
-
-	/// <summary>
-	/// Takes in the new coded settings and converts the actual pid settings
-	/// </summary>
-	/// <param name=""></param>
-	void setPidSettings(const Eigen::Vector3f moveToVector);
-
-	/// <summary>
-	/// Moves the PID settings to the next DOE location
-	/// </summary>
-	/// <param name=""></param>
-	void mvAnovaDOE(void);
-
-	/// <summary>
-	/// pi control gradient descent for find new center
-	/// </summary>
-	/// <param name=""></param>
-	void piGradDescent(void);
+	// distances to move when creating DOE space and descending gradient
+	float kp_mv, taoi_mv, taod_mv, grad_mv;
 	
-	/// <summary>
-	/// pid control gradient descent for find new center
-	/// </summary>
-	/// <param name=""></param>
-	void pidGradDescent(void);
+	// Rows of pid settings, raw values and encoded
+	Eigen::MatrixXf pidDecoded = Eigen::MatrixXf::Zero(9, 3);
+	Eigen::MatrixXi pidEncoded = Eigen::MatrixXi::Zero(9, 3);
+	Eigen::Vector3f pidSettings = Eigen::Vector3f::Zero(3);
+	// Error model values
+	Eigen::VectorXf errorPid = Eigen::VectorXi::Zero(9);
+	// stored errors
+	errorLog erLog = errorLog::errorLog(9);
+	// average error during DOE position
+	float er_avg = 0;
+	// iteration count
+	int counter = 0;
+	// number of computes before switching pid settings
+	int resetCnt;  
+	// count the number of times switched
+	int switchCnt = 0;
+	void reset();  // reset values when switching pid parameters
+	// switch Pid parameters to pidRow
+	void switchPid(int pidRow);  
 
+	Eigen::VectorXi pidRows = Eigen::VectorXi::Zero(9);
+	std::vector<int> rowsIndex = {0, 1, 2, 3, 4, 5, 6, 7, 8 };
+	float _compute(float e);
+	int randomInt(int high);
+	float _encode(float raw, float avg, float range);
+	float _decode(float coded, float avg, float range);
 
-	/// <summary>
-	/// This function encodes uncoded pi/pid Settings
-	/// </summary>
-	/// <param name="decoded"></param>
-	/// <param name="center"></param>
-	/// <param name="range"></param>
-	/// <returns></returns>
-	int encodeSetting(float decoded, float center, float step);
-
-
-	/// <summary>
-	/// This function decodeds coded pi/pid Settings
-	/// </summary>
-	/// <param name="coded"></param>
-	/// <param name="center"></param>
-	/// <param name="range"></param>
-	/// <returns></returns>
-	float decodeSetting(int coded, float center, float step);
-
-
-	float decodeSetting(float coded, float center, float step);
-
-	void resetParameters(void);
-
+	// move pid to new region
+	void movePid();
+	Eigen::VectorXf gradient();
 
 public:
-	//
-	//Constructors
-	//
-
-	/// <summary>
-	/// PI controller Constructor
-	/// </summary>
-	/// <param name="Kp"></param>
-	/// <param name="toaI"></param>
-	/// <param name="dt"></param>
-	AnovaPID(float Kp, float toaI, float dt);
-
-
-	/// <summary>
-	/// PID controller Constructor
-	/// </summary>
-	/// <param name="Kp"></param>
-	/// <param name="toaI"></param>
-	/// <param name="dt"></param>
-	/// <param name="toaD"></param>
-	AnovaPID(float Kp, float toaI, float dt, float toaD);
+	// Constructor
+	AnovaPID(float kp, float taoi, float taod, float movePercent, float dt, int switchCnt);
+	Eigen::Vector3f decodeSettings(Eigen::Vector3f encoded);
+	Eigen::Vector3f encodeSettings(Eigen::Vector3f raw);
+	float compute(float e);
 	
-	// ANOVA parameter alterations
-
-
-	/// <summary>
-	/// PI Anova control Constructor
-	/// </summary>
-	/// <param name="Kp"></param>
-	/// <param name="toaI"></param>
-	/// <param name="dt"></param>
-	/// <param name="freq"></param>
-	/// <param name="piSettings"></param>
-	/// <param name="grad_Step"></param>
-	AnovaPID(float Kp, float toaI, float dt, int freq, float grad_Step);
-
-
-	/// <summary>
-	/// PID Anova control Constructor
-	/// </summary>
-	/// <param name="Kp"></param>
-	/// <param name="toaI"></param>
-	/// <param name="dt"></param>
-	/// <param name="toaD"></param>
-	/// <param name="freq"></param>
-	/// <param name="pidSettings"></param>
-	/// <param name="grad_Step"></param>
-	AnovaPID(float Kp, float toaI, float dt, float toaD, int freq, float grad_Step);
-
-	// windup considered
-
-	//anovaPID(float Kp, int reset);
-
-	//anovaPID(float Kp, float toaI, float dt, int reset);
-
-	//anovaPID(float Kp, float toaI, float dt, float toaD, int reset);
-
-	//// windup and ANOVA
-
-	//anovaPID(float Kp, int freq, float step, int reset);
-
-	//anovaPID(float Kp, float toaI, float dt, int freq, float step, int reset);
-
-	//anovaPID(float Kp, float toaI, float dt, float toaD, int freq, float step, int reset);
-
-
-	/// <summary>
-	/// Computes the PID control action
-	/// </summary>
-	/// <param name="error"></param>
-	/// <returns></returns>
-	float compute(float error);
-
-
 };
 
 

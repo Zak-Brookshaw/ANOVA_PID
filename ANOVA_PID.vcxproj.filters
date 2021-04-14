@@ -26,11 +26,12 @@
     <ClInclude Include="src\anovaPID.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\typedefs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\Eigen\Eigen" />
     <None Include=".gitignore" />
-    <None Include="python_test.py" />
-    <None Include="python\prototype.py" />
   </ItemGroup>
 </Project>
