@@ -45,7 +45,7 @@ AnovaPID::AnovaPID(float kp, float taoi, float taod, float movePercent, float dt
 float AnovaPID::compute(float e)
 {
 	++counter;
-	er_avg = er_avg * (counter - 1) / counter + e / counter;
+	er_avg = er_avg * (counter - 1) / counter + std::abs(e) / counter;
 	if (counter > resetCnt) {
 		++switchCnt;
 		if (switchCnt == 8) {
@@ -57,7 +57,6 @@ float AnovaPID::compute(float e)
 			{
 				rowsIndex[i] = i;
 			}
-			
 			std::cout << kp << " " << taoi << " " << taod << std::endl;
 			erLog.reset();
 		}
@@ -65,7 +64,6 @@ float AnovaPID::compute(float e)
 		{
 			int row = randomInt(rowsIndex.size());
 			switchPid(row);
-
 			//std::cout << row << std::endl;
 			//std ::cout << "========"<<std ::endl;
 			//std::cout << kp << " " << taoi << " " << taod << std::endl;
@@ -98,8 +96,8 @@ inline void AnovaPID::movePid()
 	Eigen::Vector3f grad = gradient();
 	// Vector used to move from current pid parameter region
 	Eigen::RowVector3f moveVector = decodeSettings(grad);
-	std::cout << -0.005 * moveVector.cwiseProduct(pidDecoded.block(0, 0, 1, 3)) << std::endl;
-	pidDecoded.block(0, 0, 1, 3) += -0.005*moveVector.cwiseProduct(pidDecoded.block(0, 0, 1, 3));
+	std::cout << -0.005 * moveVector << std::endl;
+	pidDecoded.block(0, 0, 1, 3) += -0.05*moveVector;
 	kp = pidDecoded(0, 0);
 	taoi = pidDecoded(0, 1);
 	taod = pidDecoded(0, 2);
@@ -132,9 +130,14 @@ inline Eigen::RowVectorXf AnovaPID::gradient()
 			eff[i] += _enc * _er;
 		}
 	}
+
+	eff[0] = eff[0] / (kp_mv * 2);
+	eff[1] = eff[1] / (taoi_mv * 2);
+	eff[2] = eff[2] / (taod_mv * 2);
+
 	grad = eff / 2;
 
-	return grad / grad.norm();
+	return grad/grad.norm();
 }
 
 /// <summary>

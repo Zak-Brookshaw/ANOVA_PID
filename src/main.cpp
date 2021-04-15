@@ -71,7 +71,7 @@ int main() {
 			}
 
 		}
-		std::cout << error << std::endl;
+		//std::cout << error << std::endl;
 	}
 
 	std::cin.get();
