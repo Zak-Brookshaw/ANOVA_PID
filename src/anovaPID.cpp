@@ -30,9 +30,6 @@ AnovaPID::AnovaPID(float kp, float taoi, float taod, float movePercent, float dt
 	{
 		pidDecoded.row(i) = decodeSettings(pidEncoded.row(i));
 	}
-
-	std::cout << pidDecoded << std::endl;
-
 }
 
 /// <summary>
@@ -45,8 +42,9 @@ AnovaPID::AnovaPID(float kp, float taoi, float taod, float movePercent, float dt
 float AnovaPID::compute(float e)
 {
 	++counter;
-	er_avg = er_avg * (counter - 1) / counter + std::abs(e) / counter;
-	if (counter > resetCnt) {
+	//er_avg = er_avg * (counter - 1) / counter + std::abs(e) / counter;
+	er_avg = er_avg * (counter - 1) / counter + e / counter;
+	if (counter > resetCnt  && std::abs(e) > e_jmp) {
 		++switchCnt;
 		if (switchCnt == 8) {
 			erLog.error[switchCnt] = er_avg;
@@ -57,16 +55,14 @@ float AnovaPID::compute(float e)
 			{
 				rowsIndex[i] = i;
 			}
-			std::cout << kp << " " << taoi << " " << taod << std::endl;
+			//std::cout << kp << " " << taoi << " " << taod << std::endl;
+			//std::cout << e << std::endl;
 			erLog.reset();
 		}
 		else
 		{
 			int row = randomInt(rowsIndex.size());
 			switchPid(row);
-			//std::cout << row << std::endl;
-			//std ::cout << "========"<<std ::endl;
-			//std::cout << kp << " " << taoi << " " << taod << std::endl;
 		}
 		reset();
 	}
@@ -95,9 +91,9 @@ inline void AnovaPID::movePid()
 {
 	Eigen::Vector3f grad = gradient();
 	// Vector used to move from current pid parameter region
-	Eigen::RowVector3f moveVector = decodeSettings(grad);
-	std::cout << -0.005 * moveVector << std::endl;
-	pidDecoded.block(0, 0, 1, 3) += -0.05*moveVector;
+	//Eigen::RowVector3f moveVector = decodeSettings(grad);
+	
+	pidDecoded.block(0, 0, 1, 3) += -0.005*grad.transpose();
 	kp = pidDecoded(0, 0);
 	taoi = pidDecoded(0, 1);
 	taod = pidDecoded(0, 2);
@@ -105,6 +101,8 @@ inline void AnovaPID::movePid()
 	{
 		pidDecoded.block(i, 0, 1, 3) = decodeSettings(pidEncoded.block(i, 0, 1, 3));
 	}
+
+	//std::cout << -0.005 * moveVector << std::endl;
 }
 
 /// <summary>
@@ -115,28 +113,28 @@ inline Eigen::RowVectorXf AnovaPID::gradient()
 {
 	Eigen::RowVector3f eff = Eigen::Vector3f::Zero(3);
 	Eigen::RowVector3f grad;
-	Eigen::VectorXf _pidCol = Eigen::VectorXf::Zero(9);
-	float _er, _enc;
+	Eigen::VectorXf pidCol = Eigen::VectorXf::Zero(9);
+	float er, enc;
 	int ind;
 	for (int i = 0; i < 3; i++)
 	{
-		_pidCol = pidEncoded.block(0, i, 9, 1);
+		pidCol = pidEncoded.block(0, i, 9, 1);
 
 		for (int j = 0; j < 9; j++)
 		{
-			_er = erLog.error[j];
+			er = erLog.error[j];
 			ind = erLog.index[j];
-			_enc = (float)_pidCol[ind];
-			eff[i] += _enc * _er;
+			enc = (float)pidCol[ind];
+			eff[i] += enc * er;
 		}
 	}
 
-	eff[0] = eff[0] / (kp_mv * 2);
-	eff[1] = eff[1] / (taoi_mv * 2);
-	eff[2] = eff[2] / (taod_mv * 2);
+	eff[0] = eff[0]/kp_mv;
+	eff[1] = eff[1]/taoi_mv;
+	eff[2] = eff[2]/taod_mv;
 
 	grad = eff / 2;
-
+	/*std::cout << grad/ grad.norm() << std::endl;*/
 	return grad/grad.norm();
 }
 

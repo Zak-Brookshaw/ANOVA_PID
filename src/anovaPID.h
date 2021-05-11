@@ -34,6 +34,7 @@ private:
 	int resetCnt;  
 	// count the number of times switched
 	int switchCnt = 0;
+	float e_jmp = 5.0;  // magnitude of error needed to prompt a pid parameter switch
 	void reset();  // reset values when switching pid parameters
 	// switch Pid parameters to pidRow
 	void switchPid(int pidRow);  

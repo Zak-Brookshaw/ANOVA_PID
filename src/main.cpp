@@ -9,8 +9,6 @@ float heaviside(float time, float delay) {
 	return on_off;
 }
 
-
-
 float cAction(float tAction)
 {
 	float val;
@@ -23,9 +21,6 @@ float cAction(float tAction)
 }
 
 
-
-
-
 int main() {
 
 	// constant variables
@@ -34,8 +29,6 @@ int main() {
 	float error;
 	float setpt = 10;
 	
-
-
 	float cActArray[predH];
 	float cValue[predH] = { 0 } ;
 	for (int i = 0; i < predH; i++) {
@@ -45,10 +38,10 @@ int main() {
 
 	}
 	
-	float kp = .01;
-	float taoi = 150;
-	float taod = .0001;
-	float movePercent = 0.05;
+	float kp = .1;
+	float taoi = 200;
+	float taod = 0.1;
+	float movePercent = .5;
 	float cnt = 1000;
 
 	AnovaPID PID = AnovaPID::AnovaPID(kp, taoi, taod, movePercent, (float)dt, cnt);
@@ -59,7 +52,7 @@ int main() {
 	while (true) {
 
 		preRand = rand() % 100;
-		random = .0 * (float)preRand;
+		random = .1 * (float)preRand;
 		error = setpt - cValue[0];
 		mAction = PID.compute(error);
 		// update cValue
@@ -71,7 +64,7 @@ int main() {
 			}
 
 		}
-		//std::cout << error << std::endl;
+		std::cout << error << std::endl;
 	}
 
 	std::cin.get();
