@@ -1,4 +1,3 @@
-
 #include "math.h""
 #include <iostream>
 #include <stdlib.h>
@@ -10,8 +9,6 @@ float heaviside(float time, float delay) {
 	return on_off;
 }
 
-
-
 float cAction(float tAction)
 {
 	float val;
@@ -20,13 +17,8 @@ float cAction(float tAction)
 	float A = .1;
 
 	val = A*(1 -  exp(-(tAction - tDelay) / toa)) * heaviside(tAction, tDelay);
-
-
 	return val;
 }
-
-
-
 
 
 int main() {
@@ -37,8 +29,6 @@ int main() {
 	float error;
 	float setpt = 10;
 	
-
-
 	float cActArray[predH];
 	float cValue[predH] = { 0 } ;
 	for (int i = 0; i < predH; i++) {
@@ -48,9 +38,13 @@ int main() {
 
 	}
 	
-	
+	float kp = .1;
+	float taoi = 200;
+	float taod = 0.1;
+	float movePercent = .5;
+	float cnt = 1000;
 
-	AnovaPID PID = AnovaPID::AnovaPID(.1, 70.0, (float)dt, 1000, .1);
+	AnovaPID PID = AnovaPID::AnovaPID(kp, taoi, taod, movePercent, (float)dt, cnt);
 	float mAction;
 	int preRand;
 	float random;
@@ -58,7 +52,7 @@ int main() {
 	while (true) {
 
 		preRand = rand() % 100;
-		random = .0 * (float)preRand;
+		random = .1 * (float)preRand;
 		error = setpt - cValue[0];
 		mAction = PID.compute(error);
 		// update cValue

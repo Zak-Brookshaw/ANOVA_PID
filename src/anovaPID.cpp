@@ -1,227 +1,249 @@
 #include "anovaPID.h"
-#include "Eigen/Dense"
-#include <stdlib.h>
-#include <iostream>
+#include <cmath>
 
-AnovaPID::AnovaPID(float Kp, float toaI, float dt) :
-	Kp(Kp), toaI(toaI), dt(dt), piControl(true)
+/// <summary>
+/// Constructor
+/// 
+/// Defines several terms
+/// </summary>
+/// <param name="kp"></param>
+/// <param name="taoi"></param>
+/// <param name="taod"></param>
+/// <param name="movePercent"></param>
+/// <param name="dt"></param>
+AnovaPID::AnovaPID(float kp, float taoi, float taod, float movePercent, float dt, int resetCnt) :
+	kp(kp), taoi(taoi), taod(taod), kp_mv(movePercent* kp), taoi_mv(movePercent * taoi), taod_mv(movePercent* taod),
+	grad_mv(sqrtf(pow(kp_mv, 2) + pow(taoi_mv, 2) + pow(taod_mv, 2))), dt(dt), resetCnt(resetCnt)
 {
+	pidEncoded.row(0) << 0, 0, 0;
+	pidEncoded.row(1) << 1, 1, 1;
+	pidEncoded.row(2) << 1, -1, 1;
+	pidEncoded.row(3) << -1, 1, 1;
+	pidEncoded.row(4) << -1, -1, 1;
+	pidEncoded.row(5) << 1, 1, -1;
+	pidEncoded.row(6) << 1, -1, -1;
+	pidEncoded.row(7) << -1, 1, -1;
+	pidEncoded.row(8) << -1, -1, -1;
+	
+	pidDecoded.row(0) << kp, taoi, taod;
+	for (int i = 1; i < pidEncoded.rows(); i++)
+	{
+		pidDecoded.row(i) = decodeSettings(pidEncoded.row(i));
+	}
 }
 
-AnovaPID::AnovaPID(float Kp, float toaI, float dt, float toaD) :
-	Kp(Kp), toaI(toaI), dt(dt), toaD(toaD), pidControl(true)
+/// <summary>
+/// primary function that user will interact with.
+/// handles the decision tree and computes the control
+/// action
+/// </summary>
+/// <param name="e"></param>
+/// <returns></returns>
+float AnovaPID::compute(float e)
 {
+	++counter;
+	//er_avg = er_avg * (counter - 1) / counter + std::abs(e) / counter;
+	er_avg = er_avg * (counter - 1) / counter + e / counter;
+	if (counter > resetCnt  && std::abs(e) > e_jmp) {
+		++switchCnt;
+		if (switchCnt == 8) {
+			erLog.error[switchCnt] = er_avg;
+			movePid();
+			switchCnt = 0;
+			rowsIndex.resize(9);
+			for (int i = 1; i < 9; i++)
+			{
+				rowsIndex[i] = i;
+			}
+			//std::cout << kp << " " << taoi << " " << taod << std::endl;
+			//std::cout << e << std::endl;
+			erLog.reset();
+		}
+		else
+		{
+			int row = randomInt(rowsIndex.size());
+			switchPid(row);
+		}
+		reset();
+	}
+	float m_act = _compute(e);
+	return m_act;
 }
 
-AnovaPID::AnovaPID(float Kp, float toaI, float dt, int freq,  float grad_Step) :
-	Kp(Kp), Kp_center(Kp), toaI(toaI), toaI_center(toaI), dt(dt), freq(freq), grad_Step(grad_Step), piControl(true), 
-	anova(true), Kp_Step(grad_Step*Kp), toaI_Step(grad_Step*toaI)
+/// <summary>
+/// Calculates the control action
+/// </summary>
+/// <param name="e"></param>
+/// <returns></returns>
+inline float AnovaPID::_compute(float e)
 {
-	// resize for pi control
-	indexList.resize(5);
-	indexList.setZero();
-	errorData.resize(5);
-	errorData.setZero();
-	piSettings.resize(5, 2);
-	X_.resize(5, 4);
-	// set piSettings
-	piSettings.row(0) << 0, 0;
-	piSettings.row(1) << 1, 1;
-	piSettings.row(2) << 1, -1;
-	piSettings.row(3) << -1, 1;
-	piSettings.row(4) << -1, -1;
-
+	// calculates the control action
+	er_sum += e * dt;
+	float er_der = (e - er_prev) / dt;
+	float m_act = kp * e + (kp / taoi) * er_sum + kp * taod * er_der;
+	return m_act;
 }
 
-
-AnovaPID::AnovaPID(float Kp, float toaI, float dt, float toaD, int freq, float grad_Step) :
-	Kp(Kp),  toaI(toaI), dt(dt), toaD(toaD), freq(freq), grad_Step(grad_Step), pidControl(true), anova(true)
+/// <summary>
+/// Method that moves the DOE to the new parameter region
+/// </summary>
+inline void AnovaPID::movePid() 
 {
-	//resize for pid control
-	indexList.resize(9);
-	indexList.setZero();
-	errorData.resize(9);
-	errorData.setZero();
-	X_.resize(9, 8);
-	pidSettings.resize(9, 3);
-	// set pidSettings
-	pidSettings.row(0) << 0, 0, 0;
-	pidSettings.row(1) << 1, 1, 1;
-	pidSettings.row(2) << 1, -1, 1;
-	pidSettings.row(3) << -1, 1, 1;
-	pidSettings.row(4) << -1, -1, 1;
-	pidSettings.row(5) << 1, 1, -1;
-	pidSettings.row(6) << 1, -1, -1;
-	pidSettings.row(7) << -1, 1, -1;
-	pidSettings.row(8) << -1, -1, -1;
+	Eigen::Vector3f grad = gradient();
+	// Vector used to move from current pid parameter region
+	//Eigen::RowVector3f moveVector = decodeSettings(grad);
+	
+	pidDecoded.block(0, 0, 1, 3) += -0.005*grad.transpose();
+	kp = pidDecoded(0, 0);
+	taoi = pidDecoded(0, 1);
+	taod = pidDecoded(0, 2);
+	for (int i = 1; i < 9; i++)
+	{
+		pidDecoded.block(i, 0, 1, 3) = decodeSettings(pidEncoded.block(i, 0, 1, 3));
+	}
+
+	//std::cout << -0.005 * moveVector << std::endl;
 }
 
+/// <summary>
+/// Finds the parameter's gradient
+/// </summary>
+/// <returns></returns>
+inline Eigen::RowVectorXf AnovaPID::gradient()
+{
+	Eigen::RowVector3f eff = Eigen::Vector3f::Zero(3);
+	Eigen::RowVector3f grad;
+	Eigen::VectorXf pidCol = Eigen::VectorXf::Zero(9);
+	float er, enc;
+	int ind;
+	for (int i = 0; i < 3; i++)
+	{
+		pidCol = pidEncoded.block(0, i, 9, 1);
 
-float AnovaPID::compute(float error) {
-
-	// Naive / easy PID compute below
-
-	if (piControl) {
-		intAcc += Kp * error * dt / toaI;
-		mAction = Kp * error + intAcc;
-	}
-	else {
-		intAcc += Kp * error * dt / toaI;
-		float derAction = Kp * toaD * (error - prevError) / dt;
-		mAction = Kp * error + intAcc + derAction;
-		prevError = error;
-	}
-
-	// determine if there's a windup count
-	//windup_cnt = windup ? windup_cnt + 1 : windup_cnt;
-
-	// detemrine if there's an anova count
-	count = anova ? count + 1 : count; 
-	errorData(cntDOE) += error;
-	if ((count > freq) && anova) {
-		mvAnovaDOE();
-		count = 0;
-	}
-	
-	return mAction;
-}
-
-
-void AnovaPID::mvAnovaDOE(void) {
-	
-	unsigned int index;
-	cntDOE += 1;
-	if (piControl) {
-
-		if (cntDOE < 5) {
-			// includes the center point of DOE
-			index = randNum(5);
-			// Set the new anova parameters
-			
-			setPiSettings(piSettings.row(index).transpose());
-			indexList(cntDOE) = index;
-		}
-		else {
-			// Gradient Descent to find and set the new PI parameters
-			piGradDescent();
+		for (int j = 0; j < 9; j++)
+		{
+			er = erLog.error[j];
+			ind = erLog.index[j];
+			enc = (float)pidCol[ind];
+			eff[i] += enc * er;
 		}
 	}
 
-	else {
-		// PID Control
-		if (cntDOE < 9) {
-			index = randNum(9);
-			setPidSettings(pidSettings.row(index));
-			
-		}
-		else {
-			// GRADIENT DESCENT
-		}
-	}
+	eff[0] = eff[0]/kp_mv;
+	eff[1] = eff[1]/taoi_mv;
+	eff[2] = eff[2]/taod_mv;
 
+	grad = eff / 2;
+	/*std::cout << grad/ grad.norm() << std::endl;*/
+	return grad/grad.norm();
 }
 
-void AnovaPID::setPiSettings(const Eigen::Vector2f moveToVector) {
-
-	Kp = decodeSetting(moveToVector(0), Kp_center, Kp_Step);
-	toaI = decodeSetting(moveToVector(1), toaI_center, toaI_Step);
-
+/// <summary>
+/// This method switches the kp, taoi and taod the ones on a randomly selected row
+/// </summary>
+/// <param name="row"></param>
+inline void AnovaPID::switchPid(int row)
+{
+	Eigen::Vector3f _temp = pidDecoded.block(rowsIndex[row], 0, 1, 3).transpose();
+	kp = _temp(0);
+	taoi = _temp(1);
+	taod = _temp(2);
+	erLog.error[switchCnt-1] = er_avg;
+	erLog.index[switchCnt] = rowsIndex[row];
+	rowsIndex.erase(rowsIndex.begin() + row);
 }
 
-void AnovaPID::setPidSettings(const Eigen::Vector3f moveToVector) {
-
-	Kp = decodeSetting(moveToVector(0), Kp_center, Kp_Step);
-	toaI = decodeSetting(moveToVector(1), toaI_center, toaI_Step);
-	toaD = decodeSetting(moveToVector(2), toaD_center, toaD_Step);
-
-
+/// <summary>
+/// This function resets all values to begin next
+/// position in PID's DOE
+/// </summary>
+inline void AnovaPID::reset()
+{
+	er_sum = 0;
+	er_prev = 0;
+	counter = 0;
 }
 
-void AnovaPID::piGradDescent() {
-	
-	// build the design matrix -- row by row
-	unsigned int index;
-	Eigen::VectorXf beta(5);
-	Eigen::MatrixXf XTX_(4, 4);
-	Eigen::MatrixXf invXTX_(4, 4);
-	Eigen::VectorXf XTY_(4, 1);
-	Eigen::Vector2f gradVector;
+/// <summary>
+/// This method returns raw values of PID parameters, from encoded values
+/// </summary>
+/// <param name="encoded"></param>
+/// <returns></returns>
+inline Eigen::RowVector3f AnovaPID::decodeSettings(Eigen::RowVector3f encoded)
+{
+	float kpRange = kp_mv * 2;
+	float taoiRange = taoi_mv * 2;
+	float taodRange = taod_mv * 2;
+	float kpAvg = pidDecoded(0, 0);
+	float taoiAvg = pidDecoded(0, 1);
+	float taodAvg = pidDecoded(0, 2);
+	Eigen::RowVector3f decoded; 
 
-
-	for (int i = 0; i < 5; ++i) {
-		index = indexList(i);
-		X_.block(i, 0, 1, 4) << 1, piSettings(index, 0), piSettings(index, 1), piSettings(index, 0)*piSettings(index, 1);
-	}
-
-	XTX_ = X_.transpose() * X_;
-	
-	invXTX_ = XTX_.inverse();
-	
-	XTY_ = X_.transpose() * errorData;
-	
-	beta = invXTX_ * XTY_;
-	
-	beta = beta.normalized();
-	
-	gradVector << -1*beta(1)*grad_Step, -1*beta(2)*grad_Step;
-	
-
-	//// make the PI parameter move
-	setPiSettings(gradVector);
-	Kp_center = Kp;
-	toaI_center = toaI;
-
-	std::cout << Kp << std::endl;
-	std::cout << toaI << std::endl;
-	resetParameters();
-}
-
-
-int AnovaPID::encodeSetting(float decoded, float center, float step) {
-
-	float coded;
-	coded = (decoded - center) / step;
-	return (int)coded;
-}
-
-
-
-float AnovaPID::decodeSetting(float coded, float center, float step) {
-
-	float decoded;
-	decoded = coded * step + center;
+	decoded(0) = _decode(encoded(0), kpAvg, kpRange);
+	decoded(1) = _decode(encoded(1), taoiAvg, taoiRange);
+	decoded(2) = _decode(encoded(2), taodAvg, taodRange);
 	return decoded;
 }
 
-
-unsigned int AnovaPID::randNum(int length) {
-
-	int index = rand() % length;
-	int test = 0;
-
-	// determine if this index has been used
-	for (int i=0; i < length; i++) {
-
-		test += 1 * (indexList(i) == index);
-	}
-
-	// cycle through until a unique one has been used
-	if (test) {
-		randNum(length);
-	}
-	else {
-		return index;
-	}
+/// <summary>
+/// Method to decode the factorial input
+/// </summary>
+/// <param name="coded"></param>
+/// <param name="avg"></param>
+/// <param name="range"></param>
+/// <returns></returns>
+inline float AnovaPID::_decode(float coded, float avg, float range)
+{
+	float _temp = (float)coded;
+	float raw = coded * (range / 2) + avg;
+	return raw;
 }
 
-void AnovaPID::resetParameters() {
+/// <summary>
+/// Returns the encoded version of the raw vector PID parameter inputs
+/// as a float, since finding new pid DOE region will be fractional (most likely)
+/// </summary>
+/// <param name="decoded"></param>
+/// <returns></returns>
+inline Eigen::RowVector3f AnovaPID::encodeSettings(Eigen::RowVector3f decoded)
+{
+	float kpRange = kp_mv * 2;
+	float taoiRange = taoi_mv * 2;
+	float taodRange = taod_mv * 2;
+	float kpAvg = pidDecoded(0, 0);
+	float taoiAvg = pidDecoded(1, 0);
+	float taodAvg = pidDecoded(2, 0);
 
-	// Reset all the vectors ... etc used to store data in each Anova iteration
-	errorData.setZero();
-	indexList.setZero();
-	cntDOE = 0;
-	prevError = 0;
-	intAcc = 0;
-	X_.setZero();
+
+	Eigen::RowVector3f encoded;
+	encoded(0) = _encode(decoded(0), kpAvg, kpRange);
+	encoded(1) = _encode(decoded(1), taoiAvg, taoiRange);
+	encoded(2) = _encode(decoded(2), taodAvg, taodRange);
+	return encoded;
 }
 
+/// <summary>
+/// Encodes in factorial form
+/// </summary>
+/// <param name="raw"></param>
+/// <param name="avg"></param>
+/// <param name="range"></param>
+/// <returns></returns>
+inline float AnovaPID::_encode(float raw, float avg, float range)
+{
+
+	float encode = (int)((raw - avg) / (range / 2));
+	return encode;
+}
+
+/// <summary>
+/// Generates a random interger to choose from within pid row selection
+/// </summary>
+/// <param name="size"></param>
+/// <returns></returns>
+inline int AnovaPID::randomInt(int size)
+{
+	int value = rand() % size;
+
+	return value;
+}
